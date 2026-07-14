@@ -1,0 +1,16 @@
+// Worker config. SITE_UID is required — see README for how to find yours.
+// After deploying, attach the worker to your Publish site's domain with a
+// route (e.g. "notes.example.com/*") in the Cloudflare dashboard.
+{
+  "name": "obsidian-publish-md",
+  "main": "worker.js",
+  "compatibility_date": "2026-07-01",
+  "vars": {
+    // Your Obsidian Publish site uid (32 hex chars). Required.
+    "SITE_UID": "",
+    // Obsidian Publish origin serving your site's content. Rarely needs changing.
+    "PUBLISH_HOST": "publish-01.obsidian.md",
+    // Seconds to cache markdown responses and the permalink map.
+    "CACHE_TTL": "300"
+  }
+}
