@@ -259,7 +259,7 @@ class HeadHints {
 // markdown to browsers or HTML to agents once content negotiation is in play.
 async function passthrough(request, cfg, pathname) {
   const response = await fetch(request);
-  if (request.method !== "GET" || response.status !== 200) return response;
+  if ((request.method !== "GET" && request.method !== "HEAD") || response.status !== 200) return response;
   if (!(response.headers.get("content-type") || "").includes("text/html")) return response;
 
   const mdHref = markdownAlternate(pathname);
