@@ -73,9 +73,11 @@ async function permalinkMap(cfg, requestUrl) {
 async function llmsText(cfg, requestUrl) {
   return memoized(cfg, requestUrl, "llms.txt", "text", async () => {
     const { siteCache, options } = await siteData(cfg);
+    const hiddenItems = Array.isArray(options.navigationHiddenItems) ? options.navigationHiddenItems : [];
     const groups = new Map();
     for (const [path, meta] of Object.entries(siteCache)) {
       if (!path.endsWith(".md")) continue;
+      if (hiddenItems.some((item) => path === item || path.startsWith(`${item}/`))) continue;
       const slash = path.indexOf("/");
       const group = slash === -1 ? "Root" : path.slice(0, slash);
       const notes = groups.get(group) || [];

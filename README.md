@@ -50,7 +50,7 @@ Read the 32-character hexadecimal value from the output and set it as the worker
 
 ## Site index for agents
 
-`/llms.txt` provides a plain-text index of every published note. It uses the site's name, groups notes by top-level folder with configurable nested folder headings, and includes frontmatter descriptions when present. The generated index is memoized for `CACHE_TTL` seconds.
+`/llms.txt` provides a plain-text index of every published note. It uses the site's name, groups notes by top-level folder with configurable nested folder headings, and includes frontmatter descriptions when present. The index omits notes hidden from the site's navigation, though their direct `.md` URLs still work. The generated index is memoized for `CACHE_TTL` seconds.
 
 Each successful `.md` response includes a comment near the top pointing agents to the index unless `MD_POINTER` is disabled. The comment follows YAML frontmatter when present so parsers can still recognize frontmatter at the start of the response. Add `?resolve=1` to a markdown URL to turn resolvable wikilinks into absolute markdown links. Embeds and links inside code remain unchanged. Links that cannot be resolved from the published note list also remain unchanged, so private note names are not exposed through guessed URLs.
 
