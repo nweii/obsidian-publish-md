@@ -11,6 +11,10 @@
     // Obsidian Publish origin serving your site's content. Rarely needs changing.
     "PUBLISH_HOST": "publish-01.obsidian.md",
     // Seconds to cache markdown responses and the permalink map.
-    "CACHE_TTL": "300"
+    "CACHE_TTL": "300",
+    // Deepest folder heading level in /llms.txt, clamped from 2 through 6.
+    "LLMS_HEADING_DEPTH": "3",
+    // Set to 0 to omit the site-index pointer from markdown responses.
+    "MD_POINTER": "1"
   }
 }

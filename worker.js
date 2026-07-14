@@ -11,6 +11,8 @@ function config(env) {
     uid,
     host: env.PUBLISH_HOST || "publish-01.obsidian.md",
     ttl: parseInt(env.CACHE_TTL || "300", 10),
+    llmsHeadingDepth: Math.min(6, Math.max(2, parseInt(env.LLMS_HEADING_DEPTH || "3", 10) || 3)),
+    mdPointer: env.MD_POINTER !== "0",
   };
 }
 
@@ -92,14 +94,45 @@ async function llmsText(cfg, requestUrl) {
       "",
       "> Every published note on this Obsidian Publish site. Append .md to any page URL for the note's raw markdown source, or add ?resolve=1 to also rewrite [[wikilinks]] into resolvable markdown links.",
     ];
-    for (const [group, notes] of sections) {
-      lines.push("", `## ${group}`, "");
-      notes.sort((a, b) => a.path.localeCompare(b.path));
-      for (const note of notes) {
-        const title = note.path.slice(note.path.lastIndexOf("/") + 1, -3);
-        const description = note.description ? `: ${note.description}` : "";
-        lines.push(`- [${title}](${publicUrl(host, note.path)})${description}`);
+    const addHeading = (heading) => {
+      if (lines.at(-1) !== "") lines.push("");
+      lines.push(heading, "");
+    };
+    const addNote = (note) => {
+      const title = note.path.slice(note.path.lastIndexOf("/") + 1, -3);
+      const description = note.description ? `: ${note.description}` : "";
+      lines.push(`- [${title}](${publicUrl(host, note.path)})${description}`);
+    };
+    const addFolder = (notes, segmentIndex) => {
+      if (segmentIndex + 2 >= cfg.llmsHeadingDepth) {
+        notes.forEach(addNote);
+        return;
       }
+
+      const direct = [];
+      const children = new Map();
+      for (const note of notes) {
+        const segments = note.path.split("/");
+        if (segments.length === segmentIndex + 2) {
+          direct.push(note);
+          continue;
+        }
+        const child = segments[segmentIndex + 1];
+        const childNotes = children.get(child) || [];
+        childNotes.push(note);
+        children.set(child, childNotes);
+      }
+      direct.forEach(addNote);
+      for (const [child, childNotes] of [...children].sort(([a], [b]) => a.localeCompare(b))) {
+        addHeading(`${"#".repeat(segmentIndex + 3)} ${child}`);
+        addFolder(childNotes, segmentIndex + 1);
+      }
+    };
+    for (const [group, notes] of sections) {
+      addHeading(`## ${group}`);
+      notes.sort((a, b) => a.path.localeCompare(b.path));
+      if (group === "Root") notes.forEach(addNote);
+      else addFolder(notes, 0);
     }
     return `${lines.join("\n")}\n`;
   });
@@ -198,7 +231,7 @@ export default {
       text = rewriteWikilinks(text, paths, url.host);
     }
 
-    return new Response(addPointer(text, url.host), {
+    return new Response(cfg.mdPointer ? addPointer(text, url.host) : text, {
       status: 200,
       headers: {
         "content-type": "text/markdown; charset=utf-8",

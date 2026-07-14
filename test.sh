@@ -42,7 +42,8 @@ llms_index() {
   fetch_body "/llms.txt" || return 1
   [[ "$status" == "200" ]] || return 1
   [[ "$body" == \#\ * ]] || return 1
-  [[ "$body" == *"](https://"* ]]
+  [[ "$body" == *"](https://"* ]] || return 1
+  [[ "$body" == *$'\n### '* ]]
 }
 
 markdown_pointer() {
