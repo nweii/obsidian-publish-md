@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Smoke-tests the worker's direct path, permalink, missing-note, and pass-through behavior.
+# Smoke-tests the worker's markdown, index, resolution, missing-note, and pass-through behavior.
 
 set -u
 
@@ -38,6 +38,25 @@ direct_path() {
   [[ "$body" =~ ^(---|#{1,6}[[:space:]]|[^[:space:]]) ]]
 }
 
+llms_index() {
+  fetch_body "/llms.txt" || return 1
+  [[ "$status" == "200" ]] || return 1
+  [[ "$body" == \#\ * ]] || return 1
+  [[ "$body" == *"](https://"* ]]
+}
+
+markdown_pointer() {
+  fetch_body "/looking.md" || return 1
+  [[ "$status" == "200" ]] || return 1
+  [[ "${body%%$'\n'*}" == *"llms.txt"* ]]
+}
+
+resolved_wikilink() {
+  fetch_body "/looking.md?resolve=1" || return 1
+  [[ "$status" == "200" ]] || return 1
+  [[ "$body" == *"Superficializing+effects"* ]]
+}
+
 permalink() {
   fetch_body "/looking.md" || return 1
   [[ "$status" == "200" ]] || return 1
@@ -59,6 +78,9 @@ normal_page() {
 }
 
 check "direct-path markdown returns content" direct_path
+check "llms.txt returns a linked site index" llms_index
+check "markdown starts with the llms.txt pointer" markdown_pointer
+check "resolve rewrites a known wikilink" resolved_wikilink
 check "permalink markdown returns content" permalink
 check "missing markdown returns 404" missing_note
 check "normal page passes through as HTML" normal_page

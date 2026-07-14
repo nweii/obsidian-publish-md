@@ -41,9 +41,18 @@ Read the 32-character hexadecimal value from the output and set it as the worker
 - Direct file paths work automatically. `/Folder/Note+title.md` reads `Folder/Note title.md` from the published vault.
 - Notes served under a `permalink` frontmatter alias are resolved dynamically by reading permalinks from the site's cache endpoint. The permalink map is memoized for `CACHE_TTL` seconds.
 - `/index.md` returns the site's configured index note.
+- `/llms.txt` lists every published note, grouped by its top-level folder.
+- Every markdown response starts with a comment linking to `/llms.txt` and explaining the `?resolve=1` option.
+- Adding `?resolve=1` rewrites resolvable `[[wikilinks]]` as absolute markdown links. Wikilinks to private, unpublished, missing, or ambiguous notes remain literal.
 - Missing notes return `404`.
 - Every URL without a `.md` suffix passes through untouched.
 - Only notes with `publish: true` are reachable. The endpoint serves nothing private.
+
+## Site index for agents
+
+`/llms.txt` provides a plain-text index of every published note. It uses the site's name, groups notes by top-level folder, and includes frontmatter descriptions when present. The generated index is memoized for `CACHE_TTL` seconds.
+
+Each successful `.md` response begins with a comment pointing agents to the index. Add `?resolve=1` to a markdown URL to turn resolvable wikilinks into absolute markdown links. Embeds and links inside code remain unchanged. Links that cannot be resolved from the published note list also remain unchanged, so private note names are not exposed through guessed URLs.
 
 ## Caveat
 
@@ -51,4 +60,4 @@ The `/access/` and `/cache/` endpoints are undocumented internal Obsidian Publis
 
 ## Live example
 
-[https://nathancheng.fyi/looking.md](https://nathancheng.fyi/looking.md) returns raw markdown. The non-suffixed page at [https://nathancheng.fyi/looking](https://nathancheng.fyi/looking) renders normally.
+[https://nathancheng.fyi/looking.md](https://nathancheng.fyi/looking.md) returns raw markdown. [https://nathancheng.fyi/looking.md?resolve=1](https://nathancheng.fyi/looking.md?resolve=1) resolves its published wikilinks, and [https://nathancheng.fyi/llms.txt](https://nathancheng.fyi/llms.txt) lists the site's published notes. The non-suffixed page at [https://nathancheng.fyi/looking](https://nathancheng.fyi/looking) renders normally.
