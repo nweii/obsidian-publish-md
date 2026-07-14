@@ -4,6 +4,17 @@ Make an Obsidian Publish site readable by AI agents and plain HTTP clients. Appe
 
 For example, `https://notes.example.com/guide` renders as a normal Publish page, while `https://notes.example.com/guide.md` returns its markdown.
 
+## Features
+
+- `.md` on any page URL returns the note's raw markdown source
+- `Accept: text/markdown` content negotiation on normal page URLs
+- `/llms.txt`, an auto-maintained site index with per-note descriptions
+- `<link rel="alternate">` head tags and RFC 8288 `Link` headers advertising both (opt-out via `HTML_HINTS`)
+- An optional pointer comment on markdown responses linking the site index (opt-out via `MD_POINTER`)
+- `?resolve=1` rewrites wikilinks into followable markdown links
+
+Together with what Obsidian Publish and Cloudflare already provide (`sitemap.xml`, `robots.txt`), this covers the agent-discovery checks that audits like [isitagentready.com](https://isitagentready.com/?checks=robotsTxt%2Csitemap%2ClinkHeaders%2CmarkdownNegotiation%2CrobotsTxtAiRules%2CcontentSignals) test for.
+
 ## Why
 
 Obsidian Publish renders notes client-side. The HTML fetched by a non-browser client is a roughly 4 KB JavaScript shell containing only the title and meta tags. AI agents, feed readers, and plain HTTP fetchers get no content.
@@ -41,9 +52,9 @@ Read the 32-character hexadecimal value from the output and set it as the worker
 - Direct file paths work automatically. `/Folder/Note+title.md` reads `Folder/Note title.md` from the published vault.
 - Notes served under a `permalink` frontmatter alias are resolved dynamically by reading permalinks from the site's cache endpoint. The permalink map is memoized for `CACHE_TTL` seconds.
 - `/index.md` returns the site's configured index note.
-- `/llms.txt` lists every published note, grouped by top-level folder with one level of subfolder headings by default.
-- Markdown responses include a comment near the top linking to `/llms.txt` and explaining the `?resolve=1` option unless `MD_POINTER` is set to `0`. Notes with YAML frontmatter keep `---` as their first line, with the comment placed after the frontmatter.
-- Adding `?resolve=1` rewrites resolvable `[[wikilinks]]` as absolute markdown links. Wikilinks to private, unpublished, missing, or ambiguous notes remain literal.
+- Markdown responses serve the note source verbatim, including YAML frontmatter, by default. `MD_FRONTMATTER` can strip the frontmatter block or omit selected keys from it.
+- The `MD_POINTER` comment is placed after any YAML frontmatter so notes keep `---` as their first line and parsers still recognize the frontmatter.
+- Wikilinks to private, unpublished, missing, or ambiguous notes remain literal under `?resolve=1`.
 - Missing notes return `404`.
 - Every URL without a `.md` suffix passes through untouched.
 - Only notes with `publish: true` are reachable. The endpoint serves nothing private.
@@ -70,6 +81,7 @@ The markdown served is the note's actual source, not an HTML-to-markdown convers
 - `PUBLISH_HOST` sets the Obsidian Publish origin and defaults to `publish-01.obsidian.md`.
 - `CACHE_TTL` sets cache duration in seconds and defaults to `300`.
 - `LLMS_HEADING_DEPTH` sets the deepest folder heading level in `/llms.txt`, clamped from `2` through `6` and defaulting to `3`.
+- `MD_FRONTMATTER` controls YAML frontmatter in markdown responses. The default `1` serves it verbatim, `0` strips the whole block, and any other value is read as a comma-separated list of top-level keys to omit (for example `aliases,icon,related`) while the rest of the frontmatter is served intact. Malformed frontmatter passes through unmodified.
 - `MD_POINTER` controls the index comment in markdown responses. Set it to `0` to return the body verbatim; any other value enables the comment.
 - `HTML_HINTS` controls the alternate link tags and `Link` header on passthrough HTML. Set it to `0` to leave HTML untouched; any other value enables the hints.
 

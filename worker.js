@@ -15,6 +15,7 @@ function config(env) {
     ttl: parseInt(env.CACHE_TTL || "300", 10),
     llmsHeadingDepth: Math.min(6, Math.max(2, parseInt(env.LLMS_HEADING_DEPTH || "3", 10) || 3)),
     mdPointer: env.MD_POINTER !== "0",
+    mdFrontmatter: env.MD_FRONTMATTER || "1",
     htmlHints: env.HTML_HINTS !== "0",
   };
 }
@@ -184,10 +185,54 @@ function rewriteWikilinks(text, paths, host) {
   }).join("\n");
 }
 
+// Leading YAML frontmatter block, including its trailing line break.
+const FRONTMATTER = /^---(?:\r\n|\n)[\s\S]*?(?:\r\n|\n)---[ \t]*(?:(?:\r\n|\n)|$)/;
+
+function stripFrontmatter(text) {
+  return text.replace(FRONTMATTER, "").replace(/^(?:\r\n|\n)+/, "");
+}
+
+// Serves frontmatter per MD_FRONTMATTER: "1" keeps it verbatim, "0" strips the
+// whole block, and anything else is a comma-separated list of top-level keys to
+// omit. Key removal is line-based: a match is an unindented "key:" line, removed
+// along with its indented or list-item continuation lines. Text without a
+// well-formed frontmatter block passes through unmodified.
+function filterFrontmatter(text, setting) {
+  if (setting === "1") return text;
+  if (setting === "0") return stripFrontmatter(text);
+
+  const match = text.match(FRONTMATTER);
+  const keys = setting.split(",").map((key) => key.trim()).filter(Boolean);
+  if (!match || keys.length === 0) return text;
+
+  const lines = match[0].split(/\r\n|\n/);
+  let close = -1;
+  for (let i = 1; i < lines.length; i++) {
+    if (/^---[ \t]*$/.test(lines[i])) { close = i; break; }
+  }
+  if (close === -1) return text;
+
+  const kept = [];
+  let omitting = false;
+  for (const line of lines.slice(1, close)) {
+    // An unindented non-list line starts a new top-level entry; indented lines,
+    // list items, and blank lines belong to whichever entry preceded them.
+    if (/^\S/.test(line) && !/^-(\s|$)/.test(line)) {
+      omitting = keys.some((key) => line.startsWith(`${key}:`));
+    }
+    if (!omitting) kept.push(line);
+  }
+  if (kept.every((line) => line.trim() === "")) return stripFrontmatter(text);
+
+  const lineEnding = match[0].includes("\r\n") ? "\r\n" : "\n";
+  const trailing = /(?:\r\n|\n)$/.test(match[0]) ? lineEnding : "";
+  return ["---", ...kept, "---"].join(lineEnding) + trailing + text.slice(match[0].length);
+}
+
 function addPointer(text, host) {
   const lineEnding = text.includes("\r\n") ? "\r\n" : "\n";
   const pointer = `<!-- Site index for agents: https://${host}/llms.txt · Add ?resolve=1 to this URL to rewrite [[wikilinks]] as markdown links -->${lineEnding}${lineEnding}`;
-  const frontmatter = text.match(/^---(?:\r\n|\n)[\s\S]*?(?:\r\n|\n)---[ \t]*(?:(?:\r\n|\n)|$)/);
+  const frontmatter = text.match(FRONTMATTER);
   if (!frontmatter) return pointer + text;
 
   const separator = frontmatter[0].endsWith("\n") ? "" : lineEnding;
@@ -213,6 +258,8 @@ async function markdownResponse(cfg, url, requestUrl) {
     if (map[page]) text = await fetchNote(cfg, map[page]);
   }
   if (text === null) return null;
+
+  text = filterFrontmatter(text, cfg.mdFrontmatter);
 
   if (url.searchParams.get("resolve") === "1") {
     const { siteCache } = await siteData(cfg);
