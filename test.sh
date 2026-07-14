@@ -81,6 +81,36 @@ normal_page() {
   [[ "$content_type" == text/html* ]]
 }
 
+html_markdown_hint() {
+  fetch_body "/" || return 1
+  [[ "$status" == "200" ]] || return 1
+  [[ "$body" == *'rel="alternate"'* ]] || return 1
+  [[ "$body" == *"text/markdown"* ]]
+}
+
+html_link_header() {
+  local headers
+  headers=$(curl -sSI -L "${base}/") || return 1
+  [[ "$headers" == *[Ll]ink:*llms.txt* ]]
+}
+
+negotiated_markdown() {
+  local result http_status content_type mdbody
+  mdbody=$(curl -sS -L -H "Accept: text/markdown" -w $'\n__HTTP_STATUS__:%{http_code}\n%{content_type}' "${base}/looking") || return 1
+  content_type=${mdbody##*$'\n'}
+  http_status=${mdbody%$'\n'*}
+  http_status=${http_status##*__HTTP_STATUS__:}
+  [[ "$http_status" == "200" ]] || return 1
+  [[ "$content_type" == text/markdown* ]] || return 1
+  [[ "$mdbody" == *"Hi, I'm Nathan"* ]]
+}
+
+default_html_without_accept() {
+  local content_type
+  content_type=$(curl -sS -L -o /dev/null -w '%{content_type}' "${base}/looking") || return 1
+  [[ "$content_type" == text/html* ]]
+}
+
 check "direct-path markdown returns content" direct_path
 check "llms.txt returns a linked site index" llms_index
 check "markdown includes the llms.txt pointer without displacing frontmatter" markdown_pointer
@@ -88,6 +118,10 @@ check "resolve rewrites a known wikilink" resolved_wikilink
 check "permalink markdown returns content" permalink
 check "missing markdown returns 404" missing_note
 check "normal page passes through as HTML" normal_page
+check "homepage HTML advertises a markdown alternate" html_markdown_hint
+check "homepage sends a Link header for llms.txt" html_link_header
+check "Accept: text/markdown serves note source" negotiated_markdown
+check "page without Accept still returns HTML" default_html_without_accept
 
 if (( failures > 0 )); then
   echo "$failures smoke test(s) failed" >&2

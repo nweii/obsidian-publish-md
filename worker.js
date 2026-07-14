@@ -1,6 +1,8 @@
-// Cloudflare Worker that adds a raw-markdown convention to an Obsidian Publish
-// site: appending .md to any page URL returns the note's markdown source.
-// All other requests pass through to Obsidian Publish untouched.
+// Cloudflare Worker that makes an Obsidian Publish site readable by AI agents
+// and plain HTTP clients. Appending .md to any page URL returns the note's
+// markdown source; agents can also request markdown by content negotiation
+// (Accept: text/markdown) or discover it through head link tags and Link
+// headers added to passthrough HTML. All other requests pass through untouched.
 
 const NOT_FOUND_BODY = /^## Not Found\n/;
 
@@ -13,6 +15,7 @@ function config(env) {
     ttl: parseInt(env.CACHE_TTL || "300", 10),
     llmsHeadingDepth: Math.min(6, Math.max(2, parseInt(env.LLMS_HEADING_DEPTH || "3", 10) || 3)),
     mdPointer: env.MD_POINTER !== "0",
+    htmlHints: env.HTML_HINTS !== "0",
   };
 }
 
@@ -191,6 +194,90 @@ function addPointer(text, host) {
   return frontmatter[0] + separator + pointer + text.slice(frontmatter[0].length);
 }
 
+// "/Folder/Some+note.md" or "/Folder/Some+note" → "Folder/Some note".
+// The root path maps to "index".
+function pageName(pathname) {
+  const withoutSuffix = pathname.endsWith(".md") ? pathname.slice(0, -3) : pathname;
+  return decodeURIComponent(withoutSuffix.slice(1) || "index").replace(/\+/g, " ");
+}
+
+// Serves a note's markdown for a page URL, shared by the .md route and Accept
+// content negotiation. Returns null when no published note matches, letting the
+// caller decide between a 404 and falling through to passthrough.
+async function markdownResponse(cfg, url, requestUrl) {
+  const page = pageName(url.pathname);
+
+  let text = await fetchNote(cfg, `${page}.md`);
+  if (text === null) {
+    const map = await permalinkMap(cfg, requestUrl);
+    if (map[page]) text = await fetchNote(cfg, map[page]);
+  }
+  if (text === null) return null;
+
+  if (url.searchParams.get("resolve") === "1") {
+    const { siteCache } = await siteData(cfg);
+    const paths = Object.keys(siteCache).filter((path) => path.endsWith(".md"));
+    text = rewriteWikilinks(text, paths, url.host);
+  }
+
+  return new Response(cfg.mdPointer ? addPointer(text, url.host) : text, {
+    status: 200,
+    headers: {
+      "content-type": "text/markdown; charset=utf-8",
+      "access-control-allow-origin": "*",
+      "cache-control": `public, max-age=${cfg.ttl}`,
+      // Negotiated by the Accept header, so shared caches must key on it.
+      "vary": "Accept",
+    },
+  });
+}
+
+// The markdown alternate for an HTML page URL, or null for paths that have no
+// page markdown (the root maps to /index.md; .md and /llms.txt are skipped).
+function markdownAlternate(pathname) {
+  if (pathname === "/") return "/index.md";
+  if (pathname.endsWith(".md") || pathname === "/llms.txt") return null;
+  return `${pathname}.md`;
+}
+
+// Appends alternate-representation link tags into <head> of passthrough HTML.
+class HeadHints {
+  constructor(mdHref) {
+    this.mdHref = mdHref;
+  }
+  element(head) {
+    if (this.mdHref) {
+      head.append(`<link rel="alternate" type="text/markdown" href="${this.mdHref}">`, { html: true });
+    }
+    head.append(`<link rel="alternate" type="text/plain" href="/llms.txt" title="llms.txt">`, { html: true });
+  }
+}
+
+// Passes a request through to Obsidian Publish, then advertises the markdown and
+// llms.txt alternates on HTML pages via head link tags and a Link header (gated
+// on HTML_HINTS). Adds Vary: Accept to HTML so shared caches don't serve
+// markdown to browsers or HTML to agents once content negotiation is in play.
+async function passthrough(request, cfg, pathname) {
+  const response = await fetch(request);
+  if (request.method !== "GET" || response.status !== 200) return response;
+  if (!(response.headers.get("content-type") || "").includes("text/html")) return response;
+
+  const mdHref = markdownAlternate(pathname);
+  const rewritten = cfg.htmlHints
+    ? new HTMLRewriter().on("head", new HeadHints(mdHref)).transform(response)
+    : response;
+
+  const headers = new Headers(rewritten.headers);
+  headers.append("vary", "Accept");
+  if (cfg.htmlHints) {
+    const links = [];
+    if (mdHref) links.push(`<${mdHref}>; rel="alternate"; type="text/markdown"`);
+    links.push(`</llms.txt>; rel="alternate"; type="text/plain"`);
+    headers.set("link", links.join(", "));
+  }
+  return new Response(rewritten.body, { status: rewritten.status, statusText: rewritten.statusText, headers });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -209,37 +296,22 @@ export default {
     }
 
     // Publish's own raw endpoint also ends in .md; never intercept it.
-    if (!pathname.endsWith(".md") || pathname.startsWith("/access/")) {
-      return fetch(request);
+    if (pathname.endsWith(".md") && !pathname.startsWith("/access/")) {
+      const cfg = config(env);
+      const response = await markdownResponse(cfg, url, request.url);
+      return response || new Response(`No published note at /${pageName(pathname)}\n`, { status: 404 });
     }
 
-    const cfg = config(env);
-
-    // "/Folder/Some+note.md" → "Folder/Some note"
-    const page = decodeURIComponent(pathname.slice(1, -3)).replace(/\+/g, " ");
-
-    let text = await fetchNote(cfg, `${page}.md`);
-    if (text === null) {
-      const map = await permalinkMap(cfg, request.url);
-      if (map[page]) text = await fetchNote(cfg, map[page]);
-    }
-    if (text === null) {
-      return new Response(`No published note at /${page}\n`, { status: 404 });
+    // Content negotiation: an agent requesting markdown for a page URL gets the
+    // note's source. Misses (assets, unpublished paths) fall through to
+    // passthrough rather than 404ing, unlike the explicit .md route.
+    if (request.method === "GET" && !pathname.startsWith("/access/") &&
+        (request.headers.get("accept") || "").includes("text/markdown")) {
+      const cfg = config(env);
+      const response = await markdownResponse(cfg, url, request.url);
+      if (response) return response;
     }
 
-    if (url.searchParams.get("resolve") === "1") {
-      const { siteCache } = await siteData(cfg);
-      const paths = Object.keys(siteCache).filter((path) => path.endsWith(".md"));
-      text = rewriteWikilinks(text, paths, url.host);
-    }
-
-    return new Response(cfg.mdPointer ? addPointer(text, url.host) : text, {
-      status: 200,
-      headers: {
-        "content-type": "text/markdown; charset=utf-8",
-        "access-control-allow-origin": "*",
-        "cache-control": `public, max-age=${cfg.ttl}`,
-      },
-    });
+    return passthrough(request, config(env), pathname);
   },
 };

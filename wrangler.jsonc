@@ -15,6 +15,8 @@
     // Deepest folder heading level in /llms.txt, clamped from 2 through 6.
     "LLMS_HEADING_DEPTH": "3",
     // Set to 0 to omit the site-index pointer from markdown responses.
-    "MD_POINTER": "1"
+    "MD_POINTER": "1",
+    // Set to 0 to omit alternate link tags and Link headers on passthrough HTML.
+    "HTML_HINTS": "1"
   }
 }

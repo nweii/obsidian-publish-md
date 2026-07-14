@@ -1,6 +1,6 @@
 # Obsidian Publish markdown
 
-Append `.md` to any page URL on an Obsidian Publish site to get the note's raw markdown source, including frontmatter.
+Make an Obsidian Publish site readable by AI agents and plain HTTP clients. Append `.md` to any page URL to get the note's raw markdown source, including frontmatter.
 
 For example, `https://notes.example.com/guide` renders as a normal Publish page, while `https://notes.example.com/guide.md` returns its markdown.
 
@@ -54,6 +54,16 @@ Read the 32-character hexadecimal value from the output and set it as the worker
 
 Each successful `.md` response includes a comment near the top pointing agents to the index unless `MD_POINTER` is disabled. The comment follows YAML frontmatter when present so parsers can still recognize frontmatter at the start of the response. Add `?resolve=1` to a markdown URL to turn resolvable wikilinks into absolute markdown links. Embeds and links inside code remain unchanged. Links that cannot be resolved from the published note list also remain unchanged, so private note names are not exposed through guessed URLs.
 
+## Discovery
+
+Agents can find the markdown without knowing the `.md` convention in advance.
+
+- Passthrough HTML pages carry two `<link rel="alternate">` tags in `<head>`: one `type="text/markdown"` pointing at the current page's `.md` URL, and one `type="text/plain"` pointing at `/llms.txt`. The root page links to `/index.md`.
+- Those same HTML responses carry a `Link` header advertising both alternates per RFC 8288, so clients can discover them without parsing the body.
+- Requests with an `Accept: text/markdown` header receive the note's markdown source for any page URL, without appending `.md`. HTML stays the default for browsers, which ask for `text/html`. Page URLs that resolve to no published note (assets and the like) pass through normally instead of returning `404`.
+
+The markdown served is the note's actual source, not an HTML-to-markdown conversion. Head tags and Link headers are gated on `HTML_HINTS`; content negotiation is always on. Set `HTML_HINTS` to `0` to leave passthrough HTML untouched.
+
 ## Variables
 
 - `SITE_UID` identifies the Obsidian Publish site and is required.
@@ -61,6 +71,7 @@ Each successful `.md` response includes a comment near the top pointing agents t
 - `CACHE_TTL` sets cache duration in seconds and defaults to `300`.
 - `LLMS_HEADING_DEPTH` sets the deepest folder heading level in `/llms.txt`, clamped from `2` through `6` and defaulting to `3`.
 - `MD_POINTER` controls the index comment in markdown responses. Set it to `0` to return the body verbatim; any other value enables the comment.
+- `HTML_HINTS` controls the alternate link tags and `Link` header on passthrough HTML. Set it to `0` to leave HTML untouched; any other value enables the hints.
 
 ## Caveat
 
