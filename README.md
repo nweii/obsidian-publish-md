@@ -42,7 +42,7 @@ Read the 32-character hexadecimal value from the output and set it as the worker
 - Notes served under a `permalink` frontmatter alias are resolved dynamically by reading permalinks from the site's cache endpoint. The permalink map is memoized for `CACHE_TTL` seconds.
 - `/index.md` returns the site's configured index note.
 - `/llms.txt` lists every published note, grouped by its top-level folder.
-- Every markdown response starts with a comment linking to `/llms.txt` and explaining the `?resolve=1` option.
+- Every markdown response includes a comment near the top linking to `/llms.txt` and explaining the `?resolve=1` option. Notes with YAML frontmatter keep `---` as their first line, with the comment placed after the frontmatter.
 - Adding `?resolve=1` rewrites resolvable `[[wikilinks]]` as absolute markdown links. Wikilinks to private, unpublished, missing, or ambiguous notes remain literal.
 - Missing notes return `404`.
 - Every URL without a `.md` suffix passes through untouched.
@@ -52,7 +52,7 @@ Read the 32-character hexadecimal value from the output and set it as the worker
 
 `/llms.txt` provides a plain-text index of every published note. It uses the site's name, groups notes by top-level folder, and includes frontmatter descriptions when present. The generated index is memoized for `CACHE_TTL` seconds.
 
-Each successful `.md` response begins with a comment pointing agents to the index. Add `?resolve=1` to a markdown URL to turn resolvable wikilinks into absolute markdown links. Embeds and links inside code remain unchanged. Links that cannot be resolved from the published note list also remain unchanged, so private note names are not exposed through guessed URLs.
+Each successful `.md` response includes a comment near the top pointing agents to the index. The comment follows YAML frontmatter when present so parsers can still recognize frontmatter at the start of the response. Add `?resolve=1` to a markdown URL to turn resolvable wikilinks into absolute markdown links. Embeds and links inside code remain unchanged. Links that cannot be resolved from the published note list also remain unchanged, so private note names are not exposed through guessed URLs.
 
 ## Caveat
 

@@ -48,7 +48,10 @@ llms_index() {
 markdown_pointer() {
   fetch_body "/looking.md" || return 1
   [[ "$status" == "200" ]] || return 1
-  [[ "${body%%$'\n'*}" == *"llms.txt"* ]]
+  [[ "$body" == *"<!-- Site index for agents: "*"/llms.txt"* ]] || return 1
+  if [[ "$body" == ---$'\n'* ]]; then
+    [[ "${body%%$'\n'*}" == "---" ]]
+  fi
 }
 
 resolved_wikilink() {
@@ -79,7 +82,7 @@ normal_page() {
 
 check "direct-path markdown returns content" direct_path
 check "llms.txt returns a linked site index" llms_index
-check "markdown starts with the llms.txt pointer" markdown_pointer
+check "markdown includes the llms.txt pointer without displacing frontmatter" markdown_pointer
 check "resolve rewrites a known wikilink" resolved_wikilink
 check "permalink markdown returns content" permalink
 check "missing markdown returns 404" missing_note

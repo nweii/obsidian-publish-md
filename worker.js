@@ -146,6 +146,16 @@ function rewriteWikilinks(text, paths, host) {
   }).join("\n");
 }
 
+function addPointer(text, host) {
+  const lineEnding = text.includes("\r\n") ? "\r\n" : "\n";
+  const pointer = `<!-- Site index for agents: https://${host}/llms.txt · Add ?resolve=1 to this URL to rewrite [[wikilinks]] as markdown links -->${lineEnding}${lineEnding}`;
+  const frontmatter = text.match(/^---(?:\r\n|\n)[\s\S]*?(?:\r\n|\n)---[ \t]*(?:(?:\r\n|\n)|$)/);
+  if (!frontmatter) return pointer + text;
+
+  const separator = frontmatter[0].endsWith("\n") ? "" : lineEnding;
+  return frontmatter[0] + separator + pointer + text.slice(frontmatter[0].length);
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -188,9 +198,7 @@ export default {
       text = rewriteWikilinks(text, paths, url.host);
     }
 
-    const pointer = `<!-- Site index for agents: https://${url.host}/llms.txt · Add ?resolve=1 to this URL to rewrite [[wikilinks]] as markdown links -->\n\n`;
-
-    return new Response(pointer + text, {
+    return new Response(addPointer(text, url.host), {
       status: 200,
       headers: {
         "content-type": "text/markdown; charset=utf-8",
