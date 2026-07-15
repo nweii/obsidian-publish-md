@@ -61,16 +61,18 @@ markdown_pointer() {
   fi
 }
 
+# Content assertions test the mechanism, not the note's prose, so live edits to
+# the notes don't break the suite.
 resolved_wikilink() {
-  fetch_body "/looking.md?resolve=1" || return 1
+  fetch_body "/index.md?resolve=1" || return 1
   [[ "$status" == "200" ]] || return 1
-  [[ "$body" == *"Superficializing+effects"* ]]
+  [[ "$body" == *"](https://${domain}/"* ]]
 }
 
 permalink() {
   fetch_body "/looking.md" || return 1
   [[ "$status" == "200" ]] || return 1
-  [[ "$body" == *"Hi, I'm Nathan"* ]]
+  [[ "$body" == ---$'\n'* ]] && (( ${#body} > 500 ))
 }
 
 missing_note() {
@@ -108,7 +110,7 @@ negotiated_markdown() {
   http_status=${http_status##*__HTTP_STATUS__:}
   [[ "$http_status" == "200" ]] || return 1
   [[ "$content_type" == text/markdown* ]] || return 1
-  [[ "$mdbody" == *"Hi, I'm Nathan"* ]]
+  [[ "$mdbody" == *---* ]] && (( ${#mdbody} > 500 ))
 }
 
 default_html_without_accept() {
