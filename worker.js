@@ -302,16 +302,24 @@ async function markdownResponse(cfg, url, requestUrl) {
 
 // The markdown alternate for an HTML page URL, or null for paths that have no
 // page markdown (the root maps to /index.md; .md and /llms.txt are skipped).
-// Pages backed by a permalinked note advertise the permalink form; the lookup
-// is a memoized map read, and any failure falls back to the path-derived
-// alternate so passthrough HTML never breaks over a hint.
-async function markdownAlternate(cfg, requestUrl, pathname) {
+// Pages backed by a permalinked note advertise the permalink form. The lookup
+// never blocks page delivery: only an already-cached map is consulted, and on
+// a cache miss the map is warmed in the background (ctx.waitUntil) while this
+// request falls back to the path-derived alternate, which also serves.
+async function markdownAlternate(cfg, requestUrl, pathname, ctx) {
   if (pathname === "/") return "/index.md";
   if (pathname.endsWith(".md") || pathname === "/llms.txt") return null;
   try {
-    const { byPath } = await permalinkMaps(cfg, requestUrl);
-    const permalink = byPath[`${pageName(pathname)}.md`];
-    if (permalink) return `/${permalink}.md`;
+    const cached = await caches.default.match(
+      new Request(new URL("/__obsidian-publish-md/permalink-maps", requestUrl)),
+    );
+    if (!cached) {
+      ctx.waitUntil(permalinkMaps(cfg, requestUrl).catch(() => {}));
+    } else {
+      const { byPath } = await cached.json();
+      const permalink = byPath[`${pageName(pathname)}.md`];
+      if (permalink) return `/${permalink}.md`;
+    }
   } catch {}
   return `${pathname}.md`;
 }
@@ -333,12 +341,12 @@ class HeadHints {
 // llms.txt alternates on HTML pages via head link tags and a Link header (gated
 // on HTML_HINTS). Adds Vary: Accept to HTML so shared caches don't serve
 // markdown to browsers or HTML to agents once content negotiation is in play.
-async function passthrough(request, cfg, pathname) {
+async function passthrough(request, cfg, pathname, ctx) {
   const response = await fetch(request);
   if ((request.method !== "GET" && request.method !== "HEAD") || response.status !== 200) return response;
   if (!(response.headers.get("content-type") || "").includes("text/html")) return response;
 
-  const mdHref = cfg.htmlHints ? await markdownAlternate(cfg, request.url, pathname) : null;
+  const mdHref = cfg.htmlHints ? await markdownAlternate(cfg, request.url, pathname, ctx) : null;
   const rewritten = cfg.htmlHints
     ? new HTMLRewriter().on("head", new HeadHints(mdHref)).transform(response)
     : response;
@@ -355,7 +363,7 @@ async function passthrough(request, cfg, pathname) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const { pathname } = url;
 
@@ -388,6 +396,6 @@ export default {
       if (response) return response;
     }
 
-    return passthrough(request, config(env), pathname);
+    return passthrough(request, config(env), pathname, ctx);
   },
 };
