@@ -51,6 +51,7 @@ Read the 32-character hexadecimal value from the output and set it as the worker
 
 - Direct file paths work automatically. `/Folder/Note+title.md` reads `Folder/Note title.md` from the published vault.
 - Notes served under a `permalink` frontmatter alias are resolved dynamically by reading permalinks from the site's cache endpoint. The permalink map is memoized for `CACHE_TTL` seconds.
+- Emitted links prefer a note's permalink URL when one exists: `/llms.txt` entries, `?resolve=1` rewrites, and advertised markdown alternates all point at `/{permalink}.md` for permalinked notes. Path-form URLs are served either way.
 - `/index.md` returns the site's configured index note.
 - Markdown responses serve the note source verbatim, including YAML frontmatter, by default. `MD_FRONTMATTER` can strip the frontmatter block or omit selected keys from it.
 - The `MD_POINTER` comment is placed after any YAML frontmatter so notes keep `---` as their first line and parsers still recognize the frontmatter.

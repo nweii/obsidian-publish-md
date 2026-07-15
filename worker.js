@@ -57,21 +57,37 @@ async function memoized(cfg, requestUrl, name, type, build) {
   return value;
 }
 
-// Builds { permalink → vault file path } from the site's cache endpoint, which
-// includes each published note's frontmatter. "index" maps to the site's
-// configured index file. Memoized via the Cache API since the site cache JSON
-// can be megabytes.
-async function permalinkMap(cfg, requestUrl) {
-  return memoized(cfg, requestUrl, "permalinks", "json", async () => {
-    const map = {};
+// Builds { byPermalink: { permalink → vault file path }, byPath: the inverse }
+// from the site's cache endpoint, which includes each published note's
+// frontmatter. byPermalink resolves permalink URLs inbound and gains an "index"
+// entry for the site's configured index file; byPath canonicalizes emitted
+// links to a note's permalink form. Memoized via the Cache API since the site
+// cache JSON can be megabytes.
+async function permalinkMaps(cfg, requestUrl) {
+  return memoized(cfg, requestUrl, "permalink-maps", "json", async () => {
+    const byPermalink = {};
+    const byPath = {};
     const { siteCache, options } = await siteData(cfg);
     for (const [path, meta] of Object.entries(siteCache)) {
-      const permalink = meta?.frontmatter?.permalink;
-      if (permalink) map[String(permalink).replace(/^\/|\/$/g, "")] = path;
+      const permalink = normalizePermalink(meta?.frontmatter?.permalink);
+      if (permalink) {
+        byPermalink[permalink] = path;
+        byPath[path] = permalink;
+      }
     }
-    if (options.indexFile) map["index"] = `${options.indexFile}.md`;
-    return map;
+    if (options.indexFile) byPermalink["index"] = `${options.indexFile}.md`;
+    return { byPermalink, byPath };
   });
+}
+
+function normalizePermalink(permalink) {
+  return permalink ? String(permalink).replace(/^\/|\/$/g, "") : null;
+}
+
+// The URL a generated link should point at: the note's permalink form when it
+// has one, its vault path otherwise.
+function canonicalUrl(host, path, byPath) {
+  return publicUrl(host, byPath[path] ? `${byPath[path]}.md` : path);
 }
 
 async function llmsText(cfg, requestUrl) {
@@ -85,7 +101,11 @@ async function llmsText(cfg, requestUrl) {
       const slash = path.indexOf("/");
       const group = slash === -1 ? "Root" : path.slice(0, slash);
       const notes = groups.get(group) || [];
-      notes.push({ path, description: meta?.frontmatter?.description });
+      notes.push({
+        path,
+        description: meta?.frontmatter?.description,
+        permalink: normalizePermalink(meta?.frontmatter?.permalink),
+      });
       groups.set(group, notes);
     }
 
@@ -107,7 +127,8 @@ async function llmsText(cfg, requestUrl) {
     const addNote = (note) => {
       const title = note.path.slice(note.path.lastIndexOf("/") + 1, -3);
       const description = note.description ? `: ${note.description}` : "";
-      lines.push(`- [${title}](${publicUrl(host, note.path)})${description}`);
+      const target = note.permalink ? `${note.permalink}.md` : note.path;
+      lines.push(`- [${title}](${publicUrl(host, target)})${description}`);
     };
     const addFolder = (notes, segmentIndex) => {
       if (segmentIndex + 2 >= cfg.llmsHeadingDepth) {
@@ -159,7 +180,7 @@ function resolveTarget(target, paths) {
   return null;
 }
 
-function rewriteWikilinks(text, paths, host) {
+function rewriteWikilinks(text, paths, host, byPath) {
   let fence = null;
   return text.split("\n").map((line) => {
     const fenceMatch = line.match(/^\s*(`{3,}|~{3,})/);
@@ -179,7 +200,7 @@ function rewriteWikilinks(text, paths, host) {
         const target = targetWithSuffix.split("#", 1)[0];
         const resolved = resolveTarget(target, paths);
         if (!resolved) return wikilink;
-        return `[${alias || targetWithSuffix}](${publicUrl(host, resolved)})`;
+        return `[${alias || targetWithSuffix}](${canonicalUrl(host, resolved, byPath)})`;
       });
     }).join("");
   }).join("\n");
@@ -254,17 +275,17 @@ async function markdownResponse(cfg, url, requestUrl) {
 
   let text = await fetchNote(cfg, `${page}.md`);
   if (text === null) {
-    const map = await permalinkMap(cfg, requestUrl);
-    if (map[page]) text = await fetchNote(cfg, map[page]);
+    const { byPermalink } = await permalinkMaps(cfg, requestUrl);
+    if (byPermalink[page]) text = await fetchNote(cfg, byPermalink[page]);
   }
   if (text === null) return null;
 
   text = filterFrontmatter(text, cfg.mdFrontmatter);
 
   if (url.searchParams.get("resolve") === "1") {
-    const { siteCache } = await siteData(cfg);
+    const [{ siteCache }, { byPath }] = await Promise.all([siteData(cfg), permalinkMaps(cfg, requestUrl)]);
     const paths = Object.keys(siteCache).filter((path) => path.endsWith(".md"));
-    text = rewriteWikilinks(text, paths, url.host);
+    text = rewriteWikilinks(text, paths, url.host, byPath);
   }
 
   return new Response(cfg.mdPointer ? addPointer(text, url.host) : text, {
@@ -281,9 +302,17 @@ async function markdownResponse(cfg, url, requestUrl) {
 
 // The markdown alternate for an HTML page URL, or null for paths that have no
 // page markdown (the root maps to /index.md; .md and /llms.txt are skipped).
-function markdownAlternate(pathname) {
+// Pages backed by a permalinked note advertise the permalink form; the lookup
+// is a memoized map read, and any failure falls back to the path-derived
+// alternate so passthrough HTML never breaks over a hint.
+async function markdownAlternate(cfg, requestUrl, pathname) {
   if (pathname === "/") return "/index.md";
   if (pathname.endsWith(".md") || pathname === "/llms.txt") return null;
+  try {
+    const { byPath } = await permalinkMaps(cfg, requestUrl);
+    const permalink = byPath[`${pageName(pathname)}.md`];
+    if (permalink) return `/${permalink}.md`;
+  } catch {}
   return `${pathname}.md`;
 }
 
@@ -309,7 +338,7 @@ async function passthrough(request, cfg, pathname) {
   if ((request.method !== "GET" && request.method !== "HEAD") || response.status !== 200) return response;
   if (!(response.headers.get("content-type") || "").includes("text/html")) return response;
 
-  const mdHref = markdownAlternate(pathname);
+  const mdHref = cfg.htmlHints ? await markdownAlternate(cfg, request.url, pathname) : null;
   const rewritten = cfg.htmlHints
     ? new HTMLRewriter().on("head", new HeadHints(mdHref)).transform(response)
     : response;

@@ -46,6 +46,12 @@ llms_index() {
   [[ "$body" == *$'\n### '* ]]
 }
 
+llms_permalink_urls() {
+  fetch_body "/llms.txt" || return 1
+  [[ "$status" == "200" ]] || return 1
+  [[ "$body" == *"/looking.md)"* ]]
+}
+
 markdown_pointer() {
   fetch_body "/looking.md" || return 1
   [[ "$status" == "200" ]] || return 1
@@ -113,6 +119,7 @@ default_html_without_accept() {
 
 check "direct-path markdown returns content" direct_path
 check "llms.txt returns a linked site index" llms_index
+check "llms.txt lists permalinked notes by permalink URL" llms_permalink_urls
 check "markdown includes the llms.txt pointer without displacing frontmatter" markdown_pointer
 check "resolve rewrites a known wikilink" resolved_wikilink
 check "permalink markdown returns content" permalink
